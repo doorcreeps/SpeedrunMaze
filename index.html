@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Лабиринт: Звуки, рекорды и сохранения</title>
+    <title>Лабиринт: Выберись наружу! (GitHub Pages Ready)</title>
     <style>
         * {
             user-select: none;
@@ -257,7 +257,7 @@
             margin-top: 16px;
             color: #7aa89c;
         }
-        /* Кнопка вкл/выкл звука */
+
         .sound-toggle {
             position: fixed;
             bottom: 20px;
@@ -272,6 +272,7 @@
             border: none;
             color: #ffd966;
         }
+
         @media (max-width: 550px) {
             .sound-toggle {
                 bottom: 12px;
@@ -326,9 +327,9 @@
                 </div>
             </div>
             <div class="controls-note">
-                ★ Первое движение запускает таймер • Рекорд сохраняется навсегда ★
+                ★ Нажми на любую стрелку для старта • Рекорд сохраняется навсегда ★
             </div>
-            <footer>★ Звуки: шаги, победа, старт • Кнопка 🔊 справа внизу ★</footer>
+            <footer>★ Звуки: шаги, победа • Кнопка 🔊 справа внизу ★</footer>
         </div>
     </div>
 </div>
@@ -336,109 +337,104 @@
 
 <script>
     (function(){
-        // ---------- ЗВУКИ через Web Audio API (синтез, без внешних файлов) ----------
+        // ---------- ЗВУКИ через Web Audio API (ФИКС ДЛЯ GITHUB PAGES) ----------
         let audioCtx = null;
         let soundEnabled = true;
+        let audioUnlocked = false;
         
-        // Инициализация AudioContext (по первому действию пользователя из-за политик браузера)
-        function initAudio() {
+        // Инициализация AudioContext (только при первом жесте пользователя)
+        function initAudioOnUserGesture() {
             if (audioCtx) return;
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                // Не вызываем resume сразу, ждем user gesture
+            } catch(e) {
+                console.warn("Web Audio API не поддерживается");
+            }
         }
         
-        // Вспомогательная функция: проигрывание короткого звука
-        function playTone(frequency, duration, volume = 0.2, type = 'sine') {
+        // Функция для безопасного воспроизведения звука
+        function playSound(frequency, duration, volume = 0.15, type = 'sine') {
             if (!soundEnabled) return;
-            if (!audioCtx) {
-                // Если ещё не инициализирован - инициализируем и пробуем играть (но нужен user gesture)
-                initAudio();
-                if (audioCtx.state === 'suspended') {
-                    // автоматически не запускаем, ждём разрешения
-                    return;
-                }
-            }
+            if (!audioCtx) return;
+            
+            // Пытаемся возобновить контекст если он приостановлен
             if (audioCtx.state === 'suspended') {
-                // Если контекст приостановлен, не играем (браузер требует жеста)
-                return;
+                audioCtx.resume().then(() => {
+                    actuallyPlaySound(frequency, duration, volume, type);
+                }).catch(e => console.log("Audio resume failed:", e));
+            } else if (audioCtx.state === 'running') {
+                actuallyPlaySound(frequency, duration, volume, type);
             }
-            const now = audioCtx.currentTime;
-            const oscillator = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-            oscillator.frequency.value = frequency;
-            oscillator.type = type;
-            gainNode.gain.setValueAtTime(volume, now);
-            gainNode.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-            oscillator.start();
-            oscillator.stop(now + duration);
         }
         
-        // Звук шага (короткий щелчок/шаг)
+        function actuallyPlaySound(frequency, duration, volume, type) {
+            if (!audioCtx || !soundEnabled) return;
+            try {
+                const now = audioCtx.currentTime;
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                oscillator.frequency.value = frequency;
+                oscillator.type = type;
+                gainNode.gain.setValueAtTime(volume, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+                oscillator.start();
+                oscillator.stop(now + duration);
+            } catch(e) {
+                console.warn("Sound play error:", e);
+            }
+        }
+        
+        // Звук шага
         function playStepSound() {
-            if (!soundEnabled) return;
-            if (!audioCtx) { initAudio(); }
-            if (audioCtx && audioCtx.state === 'suspended') return;
-            playTone(800, 0.08, 0.12, 'triangle');
+            playSound(850, 0.07, 0.1, 'triangle');
         }
         
-        // Звук победы (фанфары - восходящая последовательность)
+        // Звук победы (простая последовательность)
         function playVictorySound() {
             if (!soundEnabled) return;
-            if (!audioCtx) { initAudio(); }
-            if (audioCtx && audioCtx.state === 'suspended') return;
-            // быстрая последовательность нот
             const notes = [523.25, 659.25, 783.99, 1046.50];
-            let time = audioCtx.currentTime;
             notes.forEach((freq, idx) => {
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                osc.connect(gain);
-                gain.connect(audioCtx.destination);
-                osc.frequency.value = freq;
-                osc.type = 'sine';
-                gain.gain.setValueAtTime(0.25, time + idx * 0.12);
-                gain.gain.exponentialRampToValueAtTime(0.0001, time + idx * 0.12 + 0.4);
-                osc.start(time + idx * 0.12);
-                osc.stop(time + idx * 0.12 + 0.35);
+                setTimeout(() => {
+                    playSound(freq, 0.35, 0.2, 'sine');
+                }, idx * 130);
             });
-            // дополнительный финальный аккорд
             setTimeout(() => {
-                if (soundEnabled && audioCtx) {
-                    playTone(880, 0.6, 0.2, 'sine');
-                }
-            }, 450);
+                playSound(880, 0.5, 0.18, 'sine');
+            }, 520);
         }
         
-        // Звук начала движения (первый шаг - легкий сигнал старта)
+        // Звук старта
         function playStartSound() {
-            if (!soundEnabled) return;
-            if (!audioCtx) { initAudio(); }
-            if (audioCtx && audioCtx.state === 'suspended') return;
-            playTone(1200, 0.12, 0.15, 'sine');
+            playSound(1200, 0.1, 0.12, 'sine');
         }
         
-        // Разблокировка аудио (по первому касанию любой кнопки/экрана)
-        function unlockAudio() {
+        // Разблокировка аудио по первому действию пользователя
+        function unlockAudioOnFirstInteraction() {
+            if (audioUnlocked) return;
+            if (!audioCtx) {
+                initAudioOnUserGesture();
+            }
             if (audioCtx && audioCtx.state === 'suspended') {
                 audioCtx.resume().then(() => {
-                    console.log('AudioContext resumed');
-                }).catch(e => console.warn);
+                    audioUnlocked = true;
+                    console.log("Audio unlocked!");
+                }).catch(e => console.log("Resume failed:", e));
+            } else if (audioCtx && audioCtx.state === 'running') {
+                audioUnlocked = true;
             } else if (!audioCtx) {
-                initAudio();
-                if (audioCtx && audioCtx.state === 'suspended') {
-                    audioCtx.resume();
-                }
+                initAudioOnUserGesture();
+                if (audioCtx) audioCtx.resume().then(() => audioUnlocked = true);
             }
         }
         
-        // Добавляем обработчики для разблокировки звука при первом взаимодействии
-        const unlockEvents = ['click', 'touchstart', 'keydown'];
-        function globalUnlock() {
-            unlockAudio();
-            unlockEvents.forEach(ev => window.removeEventListener(ev, globalUnlock));
-        }
-        unlockEvents.forEach(ev => window.addEventListener(ev, globalUnlock, { once: true, passive: false }));
+        // Привязываем разблокировку к любым действиям пользователя
+        const interactionEvents = ['click', 'touchstart', 'keydown'];
+        interactionEvents.forEach(ev => {
+            window.addEventListener(ev, unlockAudioOnFirstInteraction, { once: false, passive: false });
+        });
         
         // ---------- КОНСТАНТЫ ИГРЫ ----------
         const SIZE = 13;
@@ -468,33 +464,39 @@
         
         // ---------- РЕКОРДЫ ----------
         function loadRecords() {
-            const savedBest = localStorage.getItem(STORAGE_BEST_KEY);
-            if(savedBest !== null && !isNaN(parseFloat(savedBest))) {
-                bestTime = parseFloat(savedBest);
-                bestRecordSpan.innerText = bestTime.toFixed(2) + " сек";
-            } else {
-                bestTime = null;
-                bestRecordSpan.innerText = "—";
-            }
-            const savedLast = localStorage.getItem(STORAGE_LAST_KEY);
-            if(savedLast !== null && !isNaN(parseFloat(savedLast))) {
-                lastTime = parseFloat(savedLast);
-                lastRecordSpan.innerText = lastTime.toFixed(2) + " сек";
-            } else {
-                lastTime = null;
-                lastRecordSpan.innerText = "—";
-            }
+            try {
+                const savedBest = localStorage.getItem(STORAGE_BEST_KEY);
+                if(savedBest !== null && !isNaN(parseFloat(savedBest))) {
+                    bestTime = parseFloat(savedBest);
+                    bestRecordSpan.innerText = bestTime.toFixed(2) + " сек";
+                } else {
+                    bestTime = null;
+                    bestRecordSpan.innerText = "—";
+                }
+                const savedLast = localStorage.getItem(STORAGE_LAST_KEY);
+                if(savedLast !== null && !isNaN(parseFloat(savedLast))) {
+                    lastTime = parseFloat(savedLast);
+                    lastRecordSpan.innerText = lastTime.toFixed(2) + " сек";
+                } else {
+                    lastTime = null;
+                    lastRecordSpan.innerText = "—";
+                }
+            } catch(e) { console.warn("localStorage error"); }
         }
         
         function saveNewRecord(seconds) {
             if(isNaN(seconds) || seconds <= 0) return false;
             lastTime = seconds;
-            localStorage.setItem(STORAGE_LAST_KEY, lastTime.toFixed(3));
+            try {
+                localStorage.setItem(STORAGE_LAST_KEY, lastTime.toFixed(3));
+            } catch(e) {}
             lastRecordSpan.innerText = lastTime.toFixed(2) + " сек";
             let isNewBest = false;
             if(bestTime === null || seconds < bestTime) {
                 bestTime = seconds;
-                localStorage.setItem(STORAGE_BEST_KEY, bestTime.toFixed(3));
+                try {
+                    localStorage.setItem(STORAGE_BEST_KEY, bestTime.toFixed(3));
+                } catch(e) {}
                 bestRecordSpan.innerText = bestTime.toFixed(2) + " сек";
                 isNewBest = true;
             } else {
@@ -684,13 +686,6 @@
             }, 50);
         }
         
-        function resetTimerState() {
-            stopTimerIfRunning();
-            timerStarted = false;
-            startTime = null;
-            document.getElementById('timerDisplay').innerText = "0.00";
-        }
-        
         // ---------- ПОБЕДА ----------
         function declareVictory() {
             if(!gameActive) return;
@@ -703,7 +698,7 @@
                 document.getElementById('timerDisplay').innerText = finalTime.toFixed(2);
             }
             document.getElementById('statusMsg').innerHTML = "ПОБЕДА!";
-            playVictorySound(); // Звук победы!
+            playVictorySound();
             if(finalTime > 0) {
                 const isNewBest = saveNewRecord(finalTime);
                 drawMaze();
@@ -739,7 +734,7 @@
             return false;
         }
         
-        // ---------- ДВИЖЕНИЕ + ЗВУК ШАГА ----------
+        // ---------- ДВИЖЕНИЕ ----------
         function tryMove(dx, dy) {
             if(!gameActive || gameFinished) return false;
             let newX = player.x + dx;
@@ -749,10 +744,10 @@
             
             if(!timerStarted && !gameFinished && gameActive) {
                 startTimerOnFirstMove();
-                playStartSound();    // звук начала движения (первый шаг)
+                playStartSound();
                 document.getElementById('statusMsg').innerHTML = "В ПУТИ";
-            } else {
-                playStepSound();     // обычный шаг
+            } else if(timerStarted) {
+                playStepSound();
             }
             
             player.x = newX;
@@ -813,7 +808,7 @@
             document.getElementById('resetBtn').addEventListener('click', () => { newGame(); });
         }
         
-        // ---------- ВКЛ/ВЫКЛ ЗВУКА ----------
+        // ---------- ЗВУК ВКЛ/ВЫКЛ ----------
         const soundToggleBtn = document.getElementById('soundToggleBtn');
         function toggleSound() {
             soundEnabled = !soundEnabled;
@@ -828,6 +823,8 @@
             newGame();
             window.addEventListener('resize', () => drawMaze());
             setTimeout(() => drawMaze(), 50);
+            // Инициализируем аудио контекст, но не запускаем до жеста
+            initAudioOnUserGesture();
         }
         
         canvas.addEventListener('touchstart', (e) => { e.preventDefault(); });
