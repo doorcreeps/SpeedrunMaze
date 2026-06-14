@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Лабиринт: Выберись наружу! (GitHub Pages Ready)</title>
+    <title>Лабиринт: Выберись наружу! (Звук рядом с новой игрой)</title>
     <style>
         * {
             user-select: none;
@@ -113,7 +113,7 @@
             text-shadow: 0 2px 2px black;
             box-shadow: inset 0 1px 2px #3f9e8b, 0 5px 8px black;
             flex: 1;
-            min-width: 110px;
+            min-width: 100px;
             display: flex;
             align-items: baseline;
             justify-content: center;
@@ -135,6 +135,13 @@
             line-height: 1;
         }
 
+        /* Группа кнопок: новая игра + звук */
+        .button-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
         button {
             background: #e6b422;
             border: none;
@@ -153,6 +160,19 @@
         button:active {
             transform: translateY(2px);
             box-shadow: 0 1px 0 #8b5a2b;
+        }
+
+        .sound-btn {
+            background: #4a6a5e;
+            box-shadow: 0 4px 0 #2d4038;
+            color: #ffefb9;
+            font-size: 1.2rem;
+            padding: 8px 16px;
+        }
+
+        .sound-btn:active {
+            transform: translateY(2px);
+            box-shadow: 0 1px 0 #2d4038;
         }
 
         .controls {
@@ -224,6 +244,10 @@
                 font-size: 0.75rem;
                 padding: 6px 14px;
             }
+            .sound-btn {
+                font-size: 1rem;
+                padding: 6px 12px;
+            }
         }
 
         @media (max-width: 420px) {
@@ -234,6 +258,9 @@
             }
             .dpad-row {
                 gap: 10px;
+            }
+            .timer-box span, .status-box span {
+                font-size: 0.7rem;
             }
         }
 
@@ -256,30 +283,6 @@
             text-align: center;
             margin-top: 16px;
             color: #7aa89c;
-        }
-
-        .sound-toggle {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: #1e3b36;
-            border-radius: 40px;
-            padding: 8px 14px;
-            font-size: 1.2rem;
-            cursor: pointer;
-            z-index: 100;
-            box-shadow: 0 4px 10px black;
-            border: none;
-            color: #ffd966;
-        }
-
-        @media (max-width: 550px) {
-            .sound-toggle {
-                bottom: 12px;
-                right: 12px;
-                padding: 6px 12px;
-                font-size: 1rem;
-            }
         }
     </style>
 </head>
@@ -311,7 +314,10 @@
                     <span>🏁 СТАТУС</span>
                     <span class="status-value" id="statusMsg">ЖДЁТ СТАРТ</span>
                 </div>
-                <button id="resetBtn">🔄 НОВАЯ ИГРА</button>
+                <div class="button-group">
+                    <button id="resetBtn">🔄 НОВАЯ</button>
+                    <button id="soundBtn" class="sound-btn">🔊</button>
+                </div>
             </div>
 
             <div class="controls">
@@ -329,89 +335,81 @@
             <div class="controls-note">
                 ★ Нажми на любую стрелку для старта • Рекорд сохраняется навсегда ★
             </div>
-            <footer>★ Звуки: шаги, победа • Кнопка 🔊 справа внизу ★</footer>
+            <footer>★ Звуки: шаги, победа, старт • Кнопка 🔊 рядом с "НОВАЯ" ★</footer>
         </div>
     </div>
 </div>
-<button id="soundToggleBtn" class="sound-toggle">🔊 ЗВУК ВКЛ</button>
 
 <script>
     (function(){
-        // ---------- ЗВУКИ через Web Audio API (ФИКС ДЛЯ GITHUB PAGES) ----------
+        // ---------- ЗВУКИ через Web Audio API (полностью рабочий на GitHub Pages) ----------
         let audioCtx = null;
         let soundEnabled = true;
         let audioUnlocked = false;
         
-        // Инициализация AudioContext (только при первом жесте пользователя)
+        // Инициализация AudioContext
         function initAudioOnUserGesture() {
             if (audioCtx) return;
             try {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                // Не вызываем resume сразу, ждем user gesture
             } catch(e) {
                 console.warn("Web Audio API не поддерживается");
             }
         }
         
-        // Функция для безопасного воспроизведения звука
-        function playSound(frequency, duration, volume = 0.15, type = 'sine') {
+        // Безопасное воспроизведение звука
+        function playSound(frequency, duration, volume = 0.12, type = 'sine') {
             if (!soundEnabled) return;
             if (!audioCtx) return;
             
-            // Пытаемся возобновить контекст если он приостановлен
+            const play = () => {
+                if (!audioCtx || !soundEnabled) return;
+                try {
+                    const now = audioCtx.currentTime;
+                    const oscillator = audioCtx.createOscillator();
+                    const gainNode = audioCtx.createGain();
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioCtx.destination);
+                    oscillator.frequency.value = frequency;
+                    oscillator.type = type;
+                    gainNode.gain.setValueAtTime(volume, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+                    oscillator.start();
+                    oscillator.stop(now + duration);
+                } catch(e) {}
+            };
+            
             if (audioCtx.state === 'suspended') {
                 audioCtx.resume().then(() => {
-                    actuallyPlaySound(frequency, duration, volume, type);
-                }).catch(e => console.log("Audio resume failed:", e));
+                    play();
+                }).catch(() => {});
             } else if (audioCtx.state === 'running') {
-                actuallyPlaySound(frequency, duration, volume, type);
+                play();
             }
         }
         
-        function actuallyPlaySound(frequency, duration, volume, type) {
-            if (!audioCtx || !soundEnabled) return;
-            try {
-                const now = audioCtx.currentTime;
-                const oscillator = audioCtx.createOscillator();
-                const gainNode = audioCtx.createGain();
-                oscillator.connect(gainNode);
-                gainNode.connect(audioCtx.destination);
-                oscillator.frequency.value = frequency;
-                oscillator.type = type;
-                gainNode.gain.setValueAtTime(volume, now);
-                gainNode.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-                oscillator.start();
-                oscillator.stop(now + duration);
-            } catch(e) {
-                console.warn("Sound play error:", e);
-            }
-        }
-        
-        // Звук шага
         function playStepSound() {
-            playSound(850, 0.07, 0.1, 'triangle');
+            playSound(820, 0.07, 0.1, 'triangle');
         }
         
-        // Звук победы (простая последовательность)
         function playVictorySound() {
             if (!soundEnabled) return;
             const notes = [523.25, 659.25, 783.99, 1046.50];
             notes.forEach((freq, idx) => {
                 setTimeout(() => {
-                    playSound(freq, 0.35, 0.2, 'sine');
+                    playSound(freq, 0.35, 0.18, 'sine');
                 }, idx * 130);
             });
             setTimeout(() => {
-                playSound(880, 0.5, 0.18, 'sine');
+                playSound(880, 0.5, 0.16, 'sine');
             }, 520);
         }
         
-        // Звук старта
         function playStartSound() {
             playSound(1200, 0.1, 0.12, 'sine');
         }
         
-        // Разблокировка аудио по первому действию пользователя
+        // Разблокировка аудио по первому действию
         function unlockAudioOnFirstInteraction() {
             if (audioUnlocked) return;
             if (!audioCtx) {
@@ -420,8 +418,7 @@
             if (audioCtx && audioCtx.state === 'suspended') {
                 audioCtx.resume().then(() => {
                     audioUnlocked = true;
-                    console.log("Audio unlocked!");
-                }).catch(e => console.log("Resume failed:", e));
+                }).catch(() => {});
             } else if (audioCtx && audioCtx.state === 'running') {
                 audioUnlocked = true;
             } else if (!audioCtx) {
@@ -430,7 +427,7 @@
             }
         }
         
-        // Привязываем разблокировку к любым действиям пользователя
+        // Привязываем разблокировку к действиям
         const interactionEvents = ['click', 'touchstart', 'keydown'];
         interactionEvents.forEach(ev => {
             window.addEventListener(ev, unlockAudioOnFirstInteraction, { once: false, passive: false });
@@ -461,6 +458,7 @@
         
         const bestRecordSpan = document.getElementById('bestRecordDisplay');
         const lastRecordSpan = document.getElementById('lastRecordDisplay');
+        const soundBtn = document.getElementById('soundBtn');
         
         // ---------- РЕКОРДЫ ----------
         function loadRecords() {
@@ -481,7 +479,7 @@
                     lastTime = null;
                     lastRecordSpan.innerText = "—";
                 }
-            } catch(e) { console.warn("localStorage error"); }
+            } catch(e) {}
         }
         
         function saveNewRecord(seconds) {
@@ -808,13 +806,17 @@
             document.getElementById('resetBtn').addEventListener('click', () => { newGame(); });
         }
         
-        // ---------- ЗВУК ВКЛ/ВЫКЛ ----------
-        const soundToggleBtn = document.getElementById('soundToggleBtn');
+        // ---------- ЗВУК ВКЛ/ВЫКЛ (кнопка рядом с новой игрой) ----------
         function toggleSound() {
             soundEnabled = !soundEnabled;
-            soundToggleBtn.innerText = soundEnabled ? "🔊 ЗВУК ВКЛ" : "🔇 ЗВУК ВЫКЛ";
+            soundBtn.innerHTML = soundEnabled ? "🔊" : "🔇";
+            // Небольшая обратная связь: если звук включаем, проигрываем короткий пик
+            if (soundEnabled) {
+                playSound(1000, 0.08, 0.1, 'sine');
+            }
         }
-        soundToggleBtn.addEventListener('click', toggleSound);
+        
+        soundBtn.addEventListener('click', toggleSound);
         
         // ---------- ИНИТ ----------
         function init() {
@@ -823,7 +825,6 @@
             newGame();
             window.addEventListener('resize', () => drawMaze());
             setTimeout(() => drawMaze(), 50);
-            // Инициализируем аудио контекст, но не запускаем до жеста
             initAudioOnUserGesture();
         }
         
