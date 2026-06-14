@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Лабиринт: Рекорды и сохранение прогресса</title>
+    <title>Лабиринт: Звуки, рекорды и сохранения</title>
     <style>
         * {
             user-select: none;
@@ -61,7 +61,6 @@
             background-color: #231f1b;
         }
 
-        /* Верхняя панель с рекордами */
         .stats-panel {
             display: flex;
             justify-content: space-between;
@@ -156,7 +155,6 @@
             box-shadow: 0 1px 0 #8b5a2b;
         }
 
-        /* Крестовина */
         .controls {
             margin-top: 20px;
             display: flex;
@@ -259,13 +257,35 @@
             margin-top: 16px;
             color: #7aa89c;
         }
+        /* Кнопка вкл/выкл звука */
+        .sound-toggle {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #1e3b36;
+            border-radius: 40px;
+            padding: 8px 14px;
+            font-size: 1.2rem;
+            cursor: pointer;
+            z-index: 100;
+            box-shadow: 0 4px 10px black;
+            border: none;
+            color: #ffd966;
+        }
+        @media (max-width: 550px) {
+            .sound-toggle {
+                bottom: 12px;
+                right: 12px;
+                padding: 6px 12px;
+                font-size: 1rem;
+            }
+        }
     </style>
 </head>
 <body>
 <div class="game-wrapper">
     <div class="game-container">
         <div class="game-panel">
-            <!-- Табло рекордов: лучший результат и рекорд текущей сессии -->
             <div class="stats-panel">
                 <div class="record-box">
                     <div class="record-label">🏆 ЛУЧШИЙ РЕКОРД</div>
@@ -308,15 +328,120 @@
             <div class="controls-note">
                 ★ Первое движение запускает таймер • Рекорд сохраняется навсегда ★
             </div>
-            <footer>★ Результаты сохраняются в памяти устройства • Побить рекорд — обновить табло ★</footer>
+            <footer>★ Звуки: шаги, победа, старт • Кнопка 🔊 справа внизу ★</footer>
         </div>
     </div>
 </div>
+<button id="soundToggleBtn" class="sound-toggle">🔊 ЗВУК ВКЛ</button>
 
 <script>
     (function(){
-        // ---------- КОНСТАНТЫ ----------
-        const SIZE = 13;          // 13x13 клеток
+        // ---------- ЗВУКИ через Web Audio API (синтез, без внешних файлов) ----------
+        let audioCtx = null;
+        let soundEnabled = true;
+        
+        // Инициализация AudioContext (по первому действию пользователя из-за политик браузера)
+        function initAudio() {
+            if (audioCtx) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        
+        // Вспомогательная функция: проигрывание короткого звука
+        function playTone(frequency, duration, volume = 0.2, type = 'sine') {
+            if (!soundEnabled) return;
+            if (!audioCtx) {
+                // Если ещё не инициализирован - инициализируем и пробуем играть (но нужен user gesture)
+                initAudio();
+                if (audioCtx.state === 'suspended') {
+                    // автоматически не запускаем, ждём разрешения
+                    return;
+                }
+            }
+            if (audioCtx.state === 'suspended') {
+                // Если контекст приостановлен, не играем (браузер требует жеста)
+                return;
+            }
+            const now = audioCtx.currentTime;
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.frequency.value = frequency;
+            oscillator.type = type;
+            gainNode.gain.setValueAtTime(volume, now);
+            gainNode.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+            oscillator.start();
+            oscillator.stop(now + duration);
+        }
+        
+        // Звук шага (короткий щелчок/шаг)
+        function playStepSound() {
+            if (!soundEnabled) return;
+            if (!audioCtx) { initAudio(); }
+            if (audioCtx && audioCtx.state === 'suspended') return;
+            playTone(800, 0.08, 0.12, 'triangle');
+        }
+        
+        // Звук победы (фанфары - восходящая последовательность)
+        function playVictorySound() {
+            if (!soundEnabled) return;
+            if (!audioCtx) { initAudio(); }
+            if (audioCtx && audioCtx.state === 'suspended') return;
+            // быстрая последовательность нот
+            const notes = [523.25, 659.25, 783.99, 1046.50];
+            let time = audioCtx.currentTime;
+            notes.forEach((freq, idx) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.frequency.value = freq;
+                osc.type = 'sine';
+                gain.gain.setValueAtTime(0.25, time + idx * 0.12);
+                gain.gain.exponentialRampToValueAtTime(0.0001, time + idx * 0.12 + 0.4);
+                osc.start(time + idx * 0.12);
+                osc.stop(time + idx * 0.12 + 0.35);
+            });
+            // дополнительный финальный аккорд
+            setTimeout(() => {
+                if (soundEnabled && audioCtx) {
+                    playTone(880, 0.6, 0.2, 'sine');
+                }
+            }, 450);
+        }
+        
+        // Звук начала движения (первый шаг - легкий сигнал старта)
+        function playStartSound() {
+            if (!soundEnabled) return;
+            if (!audioCtx) { initAudio(); }
+            if (audioCtx && audioCtx.state === 'suspended') return;
+            playTone(1200, 0.12, 0.15, 'sine');
+        }
+        
+        // Разблокировка аудио (по первому касанию любой кнопки/экрана)
+        function unlockAudio() {
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume().then(() => {
+                    console.log('AudioContext resumed');
+                }).catch(e => console.warn);
+            } else if (!audioCtx) {
+                initAudio();
+                if (audioCtx && audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+            }
+        }
+        
+        // Добавляем обработчики для разблокировки звука при первом взаимодействии
+        const unlockEvents = ['click', 'touchstart', 'keydown'];
+        function globalUnlock() {
+            unlockAudio();
+            unlockEvents.forEach(ev => window.removeEventListener(ev, globalUnlock));
+        }
+        unlockEvents.forEach(ev => window.addEventListener(ev, globalUnlock, { once: true, passive: false }));
+        
+        // ---------- КОНСТАНТЫ ИГРЫ ----------
+        const SIZE = 13;
         const STORAGE_BEST_KEY = 'labyrinth_best_time';
         const STORAGE_LAST_KEY = 'labyrinth_last_time';
         
@@ -325,27 +450,23 @@
         canvas.width = 500;
         canvas.height = 500;
         
-        // Игровые переменные
-        let maze = [];            
+        let maze = [];
         let player = { x: 1, y: 1 };
         let exitPos = { x: SIZE-2, y: SIZE-2 };
         let gameActive = true;
         let gameFinished = false;
         
-        // Таймер: запускается с первого движения
         let timerStarted = false;
         let startTime = null;
         let timerInterval = null;
         
-        // Хранилище рекордов (загружаем при старте)
-        let bestTime = null;      // лучший результат (секунды)
-        let lastTime = null;      // последний завершённый результат
+        let bestTime = null;
+        let lastTime = null;
         
-        // DOM элементы для рекордов
         const bestRecordSpan = document.getElementById('bestRecordDisplay');
         const lastRecordSpan = document.getElementById('lastRecordDisplay');
         
-        // ---------- РАБОТА С LOCALSTORAGE (рекорды) ----------
+        // ---------- РЕКОРДЫ ----------
         function loadRecords() {
             const savedBest = localStorage.getItem(STORAGE_BEST_KEY);
             if(savedBest !== null && !isNaN(parseFloat(savedBest))) {
@@ -355,7 +476,6 @@
                 bestTime = null;
                 bestRecordSpan.innerText = "—";
             }
-            
             const savedLast = localStorage.getItem(STORAGE_LAST_KEY);
             if(savedLast !== null && !isNaN(parseFloat(savedLast))) {
                 lastTime = parseFloat(savedLast);
@@ -366,16 +486,11 @@
             }
         }
         
-        // Сохранить новый рекорд (если время лучше, обновляем best)
         function saveNewRecord(seconds) {
-            if(isNaN(seconds) || seconds <= 0) return;
-            
-            // Обновляем последний результат
+            if(isNaN(seconds) || seconds <= 0) return false;
             lastTime = seconds;
             localStorage.setItem(STORAGE_LAST_KEY, lastTime.toFixed(3));
             lastRecordSpan.innerText = lastTime.toFixed(2) + " сек";
-            
-            // Обновляем лучший результат
             let isNewBest = false;
             if(bestTime === null || seconds < bestTime) {
                 bestTime = seconds;
@@ -388,7 +503,7 @@
             return isNewBest;
         }
         
-        // ---------- ГЕНЕРАЦИЯ ЛАБИРИНТА (рандомный связный) ----------
+        // ---------- ГЕНЕРАЦИЯ ЛАБИРИНТА ----------
         function initEmptyMaze() {
             let grid = Array(SIZE).fill().map(() => Array(SIZE).fill(true));
             for(let i = 0; i < SIZE; i++){
@@ -406,7 +521,6 @@
             let stack = [];
             visited[startCell.y][startCell.x] = true;
             stack.push(startCell);
-            
             while(stack.length > 0) {
                 let current = stack[stack.length-1];
                 let neighbors = [];
@@ -467,7 +581,6 @@
                     return newMaze;
                 }
             }
-            // fallback
             let fallback = initEmptyMaze();
             for(let i=0;i<SIZE;i++) for(let j=0;j<SIZE;j++) fallback[i][j] = false;
             for(let i=0;i<SIZE;i++) fallback[0][i]=true; fallback[1][0]=false;
@@ -482,7 +595,7 @@
             return fallback;
         }
         
-        // ---------- ОТРИСОВКА (фикс. размер 500x500) ----------
+        // ---------- ОТРИСОВКА ----------
         function drawMaze() {
             const cellSize = 500 / SIZE;
             ctx.clearRect(0, 0, 500, 500);
@@ -508,8 +621,6 @@
                     }
                 }
             }
-            
-            // Выход - звезда
             let ex = exitPos.x * cellSize;
             let ey = exitPos.y * cellSize;
             ctx.save();
@@ -528,7 +639,6 @@
             ctx.textBaseline = "middle";
             ctx.fillText("★", ex + cellSize/2, ey + cellSize/2);
             
-            // Игрок
             let px = player.x * cellSize;
             let py = player.y * cellSize;
             ctx.shadowBlur = 8;
@@ -545,7 +655,6 @@
             ctx.font = `bold ${Math.floor(cellSize * 0.44)}px sans-serif`;
             ctx.fillText("⚡", px + cellSize/2, py + cellSize/2+1);
             ctx.shadowBlur = 0;
-            
             ctx.strokeStyle = "#735e3a";
             ctx.lineWidth = 0.8;
             for(let i=0;i<=SIZE;i++){
@@ -559,12 +668,9 @@
             }
         }
         
-        // ---------- ТАЙМЕР (старт при первом ходе) ----------
+        // ---------- ТАЙМЕР ----------
         function stopTimerIfRunning() {
-            if(timerInterval) {
-                clearInterval(timerInterval);
-                timerInterval = null;
-            }
+            if(timerInterval) { clearInterval(timerInterval); timerInterval = null; }
         }
         
         function startTimerOnFirstMove() {
@@ -573,7 +679,6 @@
             startTime = performance.now();
             timerInterval = setInterval(() => {
                 if(!gameActive || gameFinished) return;
-                if(!timerStarted) return;
                 let elapsed = (performance.now() - startTime) / 1000;
                 document.getElementById('timerDisplay').innerText = elapsed.toFixed(2);
             }, 50);
@@ -586,7 +691,7 @@
             document.getElementById('timerDisplay').innerText = "0.00";
         }
         
-        // ---------- ПОБЕДА (сохраняем рекорд) ----------
+        // ---------- ПОБЕДА ----------
         function declareVictory() {
             if(!gameActive) return;
             gameActive = false;
@@ -598,8 +703,7 @@
                 document.getElementById('timerDisplay').innerText = finalTime.toFixed(2);
             }
             document.getElementById('statusMsg').innerHTML = "ПОБЕДА!";
-            
-            // СОХРАНЯЕМ РЕКОРД (и лучший, и последний)
+            playVictorySound(); // Звук победы!
             if(finalTime > 0) {
                 const isNewBest = saveNewRecord(finalTime);
                 drawMaze();
@@ -608,7 +712,6 @@
                 drawMaze();
                 ctx.font = "bold 26px monospace";
                 ctx.fillStyle = "#2b411c";
-                ctx.shadowBlur = 0;
                 ctx.fillText("✧ ВЫБРАЛСЯ! ✧", 135, 240);
                 ctx.font = "18px monospace";
                 ctx.fillStyle = "#5a3e1a";
@@ -624,7 +727,6 @@
                 ctx.fillRect(0,0,500,500);
                 drawMaze();
                 ctx.font = "bold 22px monospace";
-                ctx.fillStyle = "#2b411c";
                 ctx.fillText("ПОБЕДА!", 200, 260);
             }
         }
@@ -637,10 +739,9 @@
             return false;
         }
         
-        // ---------- ДВИЖЕНИЕ (первый ход запускает таймер) ----------
+        // ---------- ДВИЖЕНИЕ + ЗВУК ШАГА ----------
         function tryMove(dx, dy) {
             if(!gameActive || gameFinished) return false;
-            
             let newX = player.x + dx;
             let newY = player.y + dy;
             if(newX < 0 || newX >= SIZE || newY < 0 || newY >= SIZE) return false;
@@ -648,7 +749,10 @@
             
             if(!timerStarted && !gameFinished && gameActive) {
                 startTimerOnFirstMove();
+                playStartSound();    // звук начала движения (первый шаг)
                 document.getElementById('statusMsg').innerHTML = "В ПУТИ";
+            } else {
+                playStepSound();     // обычный шаг
             }
             
             player.x = newX;
@@ -658,41 +762,36 @@
             return true;
         }
         
-        // ---------- НОВАЯ ИГРА (сохраняем состояние только после победы, при сбросе — просто ресет) ----------
+        // ---------- НОВАЯ ИГРА ----------
         function newGame() {
             stopTimerIfRunning();
             gameActive = true;
             gameFinished = false;
             timerStarted = false;
             startTime = null;
-            
             maze = generateValidMaze();
             player = { x: 1, y: 1 };
             exitPos = { x: SIZE-2, y: SIZE-2 };
-            
             maze[player.y][player.x] = false;
             maze[exitPos.y][exitPos.x] = false;
             if(!isReachable(maze, {x:player.x, y:player.y}, {x:exitPos.x, y:exitPos.y})) {
                 for(let i=1;i<SIZE-1;i++) maze[1][i]=false;
                 for(let i=1;i<SIZE-1;i++) maze[SIZE-2][i]=false;
                 maze[exitPos.y][exitPos.x]=false;
-                maze[player.y][player.x]=false;
             }
-            
             drawMaze();
             document.getElementById('statusMsg').innerHTML = "ЖДЁТ СТАРТ";
             document.getElementById('timerDisplay').innerText = "0.00";
         }
         
-        // ---------- ОБРАБОТЧИКИ ----------
+        // ---------- УПРАВЛЕНИЕ ----------
         function handleKey(e) {
             if(!gameActive || gameFinished) return;
-            let key = e.key;
             let moved = false;
-            if(key === 'ArrowUp' || key === 'w' || key === 'W') moved = tryMove(0, -1);
-            else if(key === 'ArrowDown' || key === 's' || key === 'S') moved = tryMove(0, 1);
-            else if(key === 'ArrowLeft' || key === 'a' || key === 'A') moved = tryMove(-1, 0);
-            else if(key === 'ArrowRight' || key === 'd' || key === 'D') moved = tryMove(1, 0);
+            if(e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') moved = tryMove(0, -1);
+            else if(e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') moved = tryMove(0, 1);
+            else if(e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') moved = tryMove(-1, 0);
+            else if(e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') moved = tryMove(1, 0);
             if(moved) e.preventDefault();
         }
         
@@ -711,27 +810,28 @@
                 btn.addEventListener('click', handler);
                 btn.addEventListener('touchstart', handler, { passive: false });
             });
-            document.getElementById('resetBtn').addEventListener('click', () => {
-                newGame();
-            });
+            document.getElementById('resetBtn').addEventListener('click', () => { newGame(); });
         }
         
-        function handleResize() {
-            drawMaze(); 
+        // ---------- ВКЛ/ВЫКЛ ЗВУКА ----------
+        const soundToggleBtn = document.getElementById('soundToggleBtn');
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            soundToggleBtn.innerText = soundEnabled ? "🔊 ЗВУК ВКЛ" : "🔇 ЗВУК ВЫКЛ";
         }
+        soundToggleBtn.addEventListener('click', toggleSound);
         
-        // ---------- ИНИЦИАЛИЗАЦИЯ ----------
+        // ---------- ИНИТ ----------
         function init() {
-            loadRecords();          // загружаем рекорды из localStorage
+            loadRecords();
             setupUIButtons();
-            newGame();              // стартуем новую игру (без сохранения рекорда)
-            window.addEventListener('resize', handleResize);
-            setTimeout(handleResize, 50);
+            newGame();
+            window.addEventListener('resize', () => drawMaze());
+            setTimeout(() => drawMaze(), 50);
         }
         
         canvas.addEventListener('touchstart', (e) => { e.preventDefault(); });
         window.addEventListener('keydown', handleKey);
-        
         init();
     })();
 </script>
